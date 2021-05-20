@@ -5,7 +5,7 @@
 This is the implementation of  Deep learning enabled semantic communication systems.
 
 ## Requirements
-+ See the requirements.txt for the required python packages and run pip install -r requirements.txt to install them.
++ See the `requirements.txt` for the required python packages and run `pip install -r requirements.txt` to install them.
 
 ## Bibtex
 ```bitex
@@ -19,7 +19,7 @@ This is the implementation of  Deep learning enabled semantic communication syst
 ## Preprocess
 ```shell
 mkdir data
-wegt http://www.statmt.org/europarl/v7/europarl.tgz
+wget http://www.statmt.org/europarl/v7/europarl.tgz
 tar zxvf europarl.tgz
 python preprocess_text.py
 ```
@@ -29,10 +29,10 @@ python preprocess_text.py
 python main.py 
 ```
 ### Notes
-+ Please carefully set the $$\lambda$$ of mutual information part since I have tested the model in different platform, 
-i.e., Tensorflow and Pytorch, same $$\lambda$$ shows different performance.
++ Please carefully set the $\lambda$ of mutual information part since I have tested the model in different platform, 
+i.e., Tensorflow and Pytorch, same $\lambda$ shows different performance.  
 
-## Evalutation
+## Evaluation
 ```shell
 python performance.py
 ```
