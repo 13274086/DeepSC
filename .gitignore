@@ -1,19 +1,7 @@
-#python 
-*.py[cod]
-*.so
-*.egg
-*.egg-info
-dist
-build
-/__pycache__/*
-
-# virtual enviornment
-/.env/*
-/.idea/*
-
-# models
-checkpoints/
-/checkpoints/deepsc-AWGN/*
-/checkpoints/deepsc-mi-awgn/*
-/checkpoints/deepsc-mi/Rayleigh/*
-/checkpoints/deepsc-Rayleigh/* 
+*__pycache__*
+*.ipynb_checkpoints*
+.ipynb_checkpoints
+cer_2012/
+*.pkl
+data/*.pkl
+checkpoints

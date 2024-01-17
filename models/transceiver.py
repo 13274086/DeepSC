@@ -109,7 +109,7 @@ class MultiHeadedAttention(nn.Module):
             # attention weights
         p_attn = F.softmax(scores, dim = -1)
         return torch.matmul(p_attn, value), p_attn
-    
+
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
     def __init__(self, d_model, d_ff, dropout=0.1):
@@ -145,8 +145,8 @@ class EncoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, dff, dropout = 0.1):
         super(EncoderLayer, self).__init__()
         
-        self.mha = MultiHeadedAttention(num_heads, d_model, dropout = 0.1)
-        self.ffn = PositionwiseFeedForward(d_model, dff, dropout = 0.1)
+        self.mha = MultiHeadedAttention(num_heads, d_model, dropout = dropout)
+        self.ffn = PositionwiseFeedForward(d_model, dff, dropout = dropout)
         
         self.layernorm1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layernorm2 = nn.LayerNorm(d_model, eps=1e-6)
@@ -166,9 +166,9 @@ class DecoderLayer(nn.Module):
     "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
     def __init__(self, d_model, num_heads, dff, dropout):
         super(DecoderLayer, self).__init__()
-        self.self_mha = MultiHeadedAttention(num_heads, d_model, dropout = 0.1)
-        self.src_mha = MultiHeadedAttention(num_heads, d_model, dropout = 0.1)
-        self.ffn = PositionwiseFeedForward(d_model, dff, dropout = 0.1)
+        self.self_mha = MultiHeadedAttention(num_heads, d_model, dropout = dropout)
+        self.src_mha = MultiHeadedAttention(num_heads, d_model, dropout = dropout)
+        self.ffn = PositionwiseFeedForward(d_model, dff, dropout = dropout)
         
         self.layernorm1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layernorm2 = nn.LayerNorm(d_model, eps=1e-6)
@@ -193,13 +193,13 @@ class DecoderLayer(nn.Module):
     
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
-    def __init__(self, num_layers, src_vocab_size, max_len, 
+    def __init__(self, num_layers, d_input, 
                  d_model, num_heads, dff, dropout = 0.1):
         super(Encoder, self).__init__()
         
         self.d_model = d_model
-        self.embedding = nn.Embedding(src_vocab_size, d_model)
-        self.pos_encoding = PositionalEncoding(d_model, dropout, max_len)
+        self.embedding = nn.Linear(d_input, d_model)
+        self.pos_encoding = PositionalEncoding(d_model, dropout, d_input)
         self.enc_layers = nn.ModuleList([EncoderLayer(d_model, num_heads, dff, dropout) 
                                             for _ in range(num_layers)])
         
@@ -217,13 +217,13 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_layers, trg_vocab_size, max_len, 
+    def __init__(self, num_layers, d_input, 
                  d_model, num_heads, dff, dropout = 0.1):
         super(Decoder, self).__init__()
         
         self.d_model = d_model
-        self.embedding = nn.Embedding(trg_vocab_size, d_model)
-        self.pos_encoding = PositionalEncoding(d_model, dropout, max_len)
+        self.embedding = nn.Linear(d_input, d_model)
+        self.pos_encoding = PositionalEncoding(d_model, dropout, d_input)
         self.dec_layers = nn.ModuleList([DecoderLayer(d_model, num_heads, dff, dropout) 
                                             for _ in range(num_layers)])
     
@@ -261,11 +261,10 @@ class ChannelDecoder(nn.Module):
         return output
         
 class DeepSC(nn.Module):
-    def __init__(self, num_layers, src_vocab_size, trg_vocab_size, src_max_len, 
-                 trg_max_len, d_model, num_heads, dff, dropout = 0.1):
+    def __init__(self, num_layers, d_input, d_output, d_model, num_heads, dff, dropout = 0.1):
         super(DeepSC, self).__init__()
         
-        self.encoder = Encoder(num_layers, src_vocab_size, src_max_len, 
+        self.encoder = Encoder(num_layers, d_input, 
                                d_model, num_heads, dff, dropout)
         
         self.channel_encoder = nn.Sequential(nn.Linear(d_model, 256), 
@@ -276,10 +275,25 @@ class DeepSC(nn.Module):
 
         self.channel_decoder = ChannelDecoder(16, d_model, 512)
         
-        self.decoder = Decoder(num_layers, trg_vocab_size, trg_max_len, 
+        self.decoder = Decoder(num_layers, d_output, 
                                d_model, num_heads, dff, dropout)
         
-        self.dense = nn.Linear(d_model, trg_vocab_size)
+        self._linear = nn.Linear(d_model, d_output)
+        
+        
+class DeepSC_MLP(nn.Module):
+    def __init__(self, d_input, d_output):
+        super(DeepSC_MLP, self).__init__()
+        
+        self.encoder = nn.Linear(d_input, 32)
+        
+        self.channel_encoder = nn.Linear(32, 16)
+
+
+        self.channel_decoder = nn.Linear(16, 32)
+        
+        self.decoder = nn.Linear(32, d_output)
+        self.dense = nn.Linear(32, d_output)
 
 
 

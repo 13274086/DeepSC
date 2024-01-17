@@ -11,27 +11,10 @@ import torch
 import time
 import torch.nn as nn
 import numpy as np
-from w3lib.html import remove_tags
-from nltk.translate.bleu_score import sentence_bleu
 from models.mutual_info import sample_batch, mutual_information
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class BleuScore():
-    def __init__(self, w1, w2, w3, w4):
-        self.w1 = w1 # 1-gram weights
-        self.w2 = w2 # 2-grams weights
-        self.w3 = w3 # 3-grams weights
-        self.w4 = w4 # 4-grams weights
-    
-    def compute_blue_score(self, real, predicted):
-        score = []
-        for (sent1, sent2) in zip(real, predicted):
-            sent1 = remove_tags(sent1).split()
-            sent2 = remove_tags(sent2).split()
-            score.append(sentence_bleu([sent1], sent2, 
-                          weights=(self.w1, self.w2, self.w3, self.w4)))
-        return score
             
 
 class LabelSmoothing(nn.Module):
@@ -276,6 +259,44 @@ def train_step(model, src, trg, n_var, pad, opt, criterion, channel, mi_net=None
 
     return loss.item()
 
+def train_step_mlp(model, src, trg, n_var, opt, criterion, channel, mi_net=None):
+    model.train()
+
+    channels = Channels()
+    opt.zero_grad()
+    # print ('src',src)
+    # print ('src.shape',src.shape)
+    # print ("model",model)
+    enc_output = model.encoder(src)
+    channel_enc_output = model.channel_encoder(enc_output)
+    Tx_sig = PowerNormalize(channel_enc_output)
+
+    if channel == 'AWGN':
+        Rx_sig = channels.AWGN(Tx_sig, n_var)
+    elif channel == 'Rayleigh':
+        Rx_sig = channels.Rayleigh(Tx_sig, n_var)
+    elif channel == 'Rician':
+        Rx_sig = channels.Rician(Tx_sig, n_var)
+    else:
+        raise ValueError("Please choose from AWGN, Rayleigh, and Rician")
+
+    channel_dec_output = model.channel_decoder(Rx_sig)
+    pred = model.decoder(channel_dec_output)
+    loss = criterion(pred.contiguous().view(-1),trg.contiguous().view(-1))
+
+    if mi_net is not None:
+        mi_net.eval()
+        joint, marginal = sample_batch(Tx_sig, Rx_sig)
+        mi_lb, _, _ = mutual_information(joint, marginal, mi_net)
+        loss_mine = -mi_lb
+        loss = loss + 0.0009 * loss_mine
+    # loss = loss_function(pred, trg_real, pad)
+    # print ("loss",loss)
+    loss.backward()
+    opt.step()
+
+    return loss.item()
+
 
 def train_mi(model, mi_net, src, n_var, padding_idx, opt, channel):
     mi_net.train()
@@ -283,6 +304,33 @@ def train_mi(model, mi_net, src, n_var, padding_idx, opt, channel):
     channels = Channels()
     src_mask = (src == padding_idx).unsqueeze(-2).type(torch.FloatTensor).to(device)  # [batch, 1, seq_len]
     enc_output = model.encoder(src, src_mask)
+    channel_enc_output = model.channel_encoder(enc_output)
+    Tx_sig = PowerNormalize(channel_enc_output)
+
+    if channel == 'AWGN':
+        Rx_sig = channels.AWGN(Tx_sig, n_var)
+    elif channel == 'Rayleigh':
+        Rx_sig = channels.Rayleigh(Tx_sig, n_var)
+    elif channel == 'Rician':
+        Rx_sig = channels.Rician(Tx_sig, n_var)
+    else:
+        raise ValueError("Please choose from AWGN, Rayleigh, and Rician")
+
+    joint, marginal = sample_batch(Tx_sig, Rx_sig)
+    mi_lb, _, _ = mutual_information(joint, marginal, mi_net)
+    loss_mine = -mi_lb
+
+    loss_mine.backward()
+    torch.nn.utils.clip_grad_norm_(mi_net.parameters(), 10.0)
+    opt.step()
+
+    return loss_mine.item()
+
+def train_mi_mlp(model, mi_net, src, n_var, opt, channel):
+    mi_net.train()
+    opt.zero_grad()
+    channels = Channels()
+    enc_output = model.encoder(src)
     channel_enc_output = model.channel_encoder(enc_output)
     Tx_sig = PowerNormalize(channel_enc_output)
 
@@ -335,6 +383,28 @@ def val_step(model, src, trg, n_var, pad, criterion, channel):
                          trg_real.contiguous().view(-1), 
                          pad, criterion)
     # loss = loss_function(pred, trg_real, pad)
+    
+    return loss.item()
+
+def val_step_mlp(model, src, trg, n_var, criterion, channel):
+    channels = Channels()
+
+    enc_output = model.encoder(src)
+    channel_enc_output = model.channel_encoder(enc_output)
+    Tx_sig = PowerNormalize(channel_enc_output)
+
+    if channel == 'AWGN':
+        Rx_sig = channels.AWGN(Tx_sig, n_var)
+    elif channel == 'Rayleigh':
+        Rx_sig = channels.Rayleigh(Tx_sig, n_var)
+    elif channel == 'Rician':
+        Rx_sig = channels.Rician(Tx_sig, n_var)
+    else:
+        raise ValueError("Please choose from AWGN, Rayleigh, and Rician")
+
+    channel_dec_output = model.channel_decoder(Rx_sig)
+    pred = model.decoder(channel_dec_output)
+    loss = criterion(pred.contiguous().view(-1),trg.contiguous().view(-1))
     
     return loss.item()
     

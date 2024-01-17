@@ -1,7 +1,7 @@
 # !usr/bin/env python
 # -*- coding:utf-8 _*-
 """
-@Author: Huiqiang Xie
+@Author: Weilong Chen
 @File: EurDataset.py
 @Time: 2021/3/31 23:20
 """
@@ -16,6 +16,20 @@ class EurDataset(Dataset):
     def __init__(self, split='train'):
         data_dir = '/import/antennas/Datasets/hx301/'
         with open(data_dir + 'europarl/{}_data.pkl'.format(split), 'rb') as f:
+            self.data = pickle.load(f)
+
+
+    def __getitem__(self, index):
+        sents = self.data[index]
+        return  sents
+
+    def __len__(self):
+        return len(self.data)
+    
+class TimeseriesDataset(Dataset):
+    def __init__(self, split='train'):
+        data_dir = '/home/chenweilong/DeepSC_TimeSeries/'
+        with open(data_dir + 'data_96_{}.pkl'.format(split), 'rb') as f:
             self.data = pickle.load(f)
 
 

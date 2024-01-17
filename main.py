@@ -13,25 +13,29 @@ import random
 import torch.nn as nn
 import numpy as np
 from utils import SNR_to_noise, initNetParams, train_step, val_step, train_mi
-from dataset import EurDataset, collate_data
-from models.transceiver import DeepSC
+from utils import train_step_mlp, train_mi_mlp, val_step_mlp
+from dataset import EurDataset, collate_data, TimeseriesDataset
+from models.transceiver import DeepSC,DeepSC_MLP
 from models.mutual_info import Mine
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 #parser.add_argument('--data-dir', default='data/train_data.pkl', type=str)
-parser.add_argument('--vocab-file', default='europarl/vocab.json', type=str)
+# parser.add_argument('--vocab-file', default='europarl/vocab.json', type=str)
 parser.add_argument('--checkpoint-path', default='checkpoints/deepsc-Rayleigh', type=str)
 parser.add_argument('--channel', default='Rayleigh', type=str, help = 'Please choose AWGN, Rayleigh, and Rician')
-parser.add_argument('--MAX-LENGTH', default=30, type=int)
-parser.add_argument('--MIN-LENGTH', default=4, type=int)
+parser.add_argument('--MAX-LENGTH', default=96, type=int)
+parser.add_argument('--MIN-LENGTH', default=96, type=int)
 parser.add_argument('--d-model', default=128, type=int)
 parser.add_argument('--dff', default=512, type=int)
 parser.add_argument('--num-layers', default=4, type=int)
 parser.add_argument('--num-heads', default=8, type=int)
 parser.add_argument('--batch-size', default=128, type=int)
 parser.add_argument('--epochs', default=80, type=int)
+parser.add_argument('--model', default="mlp", type=str)
+parser.add_argument('--d_input', default=96, type=int)
+parser.add_argument('--d_output', default=96, type=int)
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -44,17 +48,21 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 def validate(epoch, args, net):
-    test_eur = EurDataset('test')
+    test_eur = TimeseriesDataset('test')
     test_iterator = DataLoader(test_eur, batch_size=args.batch_size, num_workers=0,
-                                pin_memory=True, collate_fn=collate_data)
+                                pin_memory=True)
     net.eval()
     pbar = tqdm(test_iterator)
     total = 0
     with torch.no_grad():
         for sents in pbar:
-            sents = sents.to(device)
-            loss = val_step(net, sents, sents, 0.1, pad_idx,
-                             criterion, args.channel)
+            sents = sents.float().to(device)
+            if args.model == "transformer":
+                loss = val_step(net, sents, sents, 0.1, pad_idx,
+                                criterion, args.channel)
+            else:
+                loss = val_step_mlp(net, sents, sents, 0.1,
+                                criterion, args.channel)
 
             total += loss
             pbar.set_description(
@@ -67,27 +75,38 @@ def validate(epoch, args, net):
 
 
 def train(epoch, args, net, mi_net=None):
-    train_eur= EurDataset('train')
+    train_eur= TimeseriesDataset('train')
     train_iterator = DataLoader(train_eur, batch_size=args.batch_size, num_workers=0,
-                                pin_memory=True, collate_fn=collate_data)
+                                pin_memory=True)
     pbar = tqdm(train_iterator)
 
     noise_std = np.random.uniform(SNR_to_noise(5), SNR_to_noise(10), size=(1))
 
     for sents in pbar:
-        sents = sents.to(device)
-
+        sents = sents.float().to(device)
+        
         if mi_net is not None:
-            mi = train_mi(net, mi_net, sents, 0.1, pad_idx, mi_opt, args.channel)
-            loss = train_step(net, sents, sents, 0.1, pad_idx,
+            if args.model == 'transformer':
+                mi = train_mi(net, mi_net, sents, 0.1, pad_idx, mi_opt, args.channel)
+            
+                loss = train_step(net, sents, sents, 0.1, pad_idx,
+                              optimizer, criterion, args.channel, mi_net)
+            elif args.model == 'mlp':
+                mi = train_mi_mlp(net, mi_net, sents, 0.1, mi_opt, args.channel)
+                loss = train_step_mlp(net, sents, sents, 0.1,
                               optimizer, criterion, args.channel, mi_net)
             pbar.set_description(
                 'Epoch: {};  Type: Train; Loss: {:.5f}; MI {:.5f}'.format(
                     epoch + 1, loss, mi
                 )
             )
+            exit()
         else:
-            loss = train_step(net, sents, sents, noise_std[0], pad_idx,
+            if args.model == 'transformer':
+                loss = train_step(net, sents, sents, noise_std[0], pad_idx,
+                                optimizer, criterion, args.channel)
+            else:
+                loss = train_step_mlp(net, sents, sents, 0.1,
                               optimizer, criterion, args.channel)
             pbar.set_description(
                 'Epoch: {};  Type: Train; Loss: {:.5f}'.format(
@@ -99,22 +118,21 @@ def train(epoch, args, net, mi_net=None):
 if __name__ == '__main__':
     # setup_seed(10)
     args = parser.parse_args()
-    args.vocab_file = '/import/antennas/Datasets/hx301/' + args.vocab_file
-    """ preparing the dataset """
-    vocab = json.load(open(args.vocab_file, 'rb'))
-    token_to_idx = vocab['token_to_idx']
-    num_vocab = len(token_to_idx)
-    pad_idx = token_to_idx["<PAD>"]
-    start_idx = token_to_idx["<START>"]
-    end_idx = token_to_idx["<END>"]
 
-
+    pad_idx = -999
     """ define optimizer and loss function """
-    deepsc = DeepSC(args.num_layers, num_vocab, num_vocab,
-                        num_vocab, num_vocab, args.d_model, args.num_heads,
-                        args.dff, 0.1).to(device)
+    if args.model == "transformer":
+        deepsc = DeepSC(args.num_layers, args.d_input,
+                        args.d_output,args.d_model, 
+                        args.num_heads,args.dff, 
+                        0.1).to(device)
+    elif args.model == "mlp":
+        deepsc = DeepSC_MLP(args.d_input,
+                            args.d_output).to(device)
+    else:
+        raise ValueError('No model.')
     mi_net = Mine().to(device)
-    criterion = nn.CrossEntropyLoss(reduction = 'none')
+    criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(deepsc.parameters(),
                                  lr=1e-4, betas=(0.9, 0.98), eps=1e-8, weight_decay = 5e-4)
     mi_opt = torch.optim.Adam(mi_net.parameters(), lr=1e-3)
