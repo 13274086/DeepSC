@@ -84,6 +84,8 @@ def train(epoch, args, net, mi_net=None):
 
     for sents in pbar:
         sents = sents.float().to(device)
+        print ('sents.shape',sents.shape)
+        print ('sents',sents)
         
         if mi_net is not None:
             if args.model == 'transformer':

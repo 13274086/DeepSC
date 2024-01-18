@@ -213,6 +213,8 @@ def train_step(model, src, trg, n_var, pad, opt, criterion, channel, mi_net=None
 
     trg_inp = trg[:, :-1]
     trg_real = trg[:, 1:]
+    print ('trg_inp',trg_inp.shape)
+    print ('trg_real',trg_real.shape)
 
     channels = Channels()
     opt.zero_grad()
